@@ -114,10 +114,17 @@ const EyeIcon = ({ off }: { off?: boolean }) => (
       </>
     ) : (
       <>
-        <path d="M1 12s4-8 11-8 11 8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
         <circle cx="12" cy="12" r="3"></circle>
       </>
     )}
+  </svg>
+);
+
+const PlusIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="12" y1="5" x2="12" y2="19"></line>
+    <line x1="5" y1="12" x2="19" y2="12"></line>
   </svg>
 );
 
@@ -164,12 +171,14 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
-  const [storagePath, setStoragePath] = useState("");
 
   const [activeView, setActiveView] = useState<ViewMode>("accounts");
 
   const [query, setQuery] = useState("");
   const [showSecrets, setShowSecrets] = useState(false);
+
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [modalTab, setModalTab] = useState<"manual" | "import">("manual");
 
   const [importText, setImportText] = useState("");
   const [importing, setImporting] = useState(false);
@@ -185,12 +194,8 @@ function App() {
   useEffect(() => {
     const loadInitialData = async () => {
       try {
-        const [loaded, path] = await Promise.all([
-          invoke<AppData>("load_data"),
-          invoke<string>("get_storage_path"),
-        ]);
+        const loaded = await invoke<AppData>("load_data");
         setData(loaded);
-        setStoragePath(path);
       } catch (error) {
         setNotice({ type: "error", text: `初始化失败: ${String(error)}` });
       } finally {
@@ -319,6 +324,7 @@ function App() {
         "success",
         `导入完成：总计 ${result.imported} 条，新增 ${result.created} 条，更新 ${result.updated} 条`,
       );
+      setIsModalOpen(false);
     } catch (error) {
       showNotice("error", `导入失败: ${String(error)}`);
     } finally {
@@ -359,6 +365,7 @@ function App() {
       const ok = await persistData({ ...data, accounts: nextAccounts }, "账号已更新");
       if (ok) {
         resetEditor();
+        setIsModalOpen(false);
       }
       return;
     }
@@ -383,6 +390,7 @@ function App() {
 
     if (ok) {
       resetEditor();
+      setIsModalOpen(false);
     }
   };
 
@@ -397,6 +405,8 @@ function App() {
       messagesUrl: account.messagesUrl,
       note: account.note || "",
     });
+    setModalTab("manual");
+    setIsModalOpen(true);
   };
 
   const handleDeleteAccount = async (accountId: string) => {
@@ -424,6 +434,7 @@ function App() {
     const ok = await persistData(nextData, "账号已删除");
     if (ok && editingAccountId === accountId) {
       resetEditor();
+      setIsModalOpen(false);
     }
   };
 
@@ -648,7 +659,20 @@ function App() {
           </div>
           <div className="flex gap-2 items-center">
             {activeView === "accounts" ? (
-              <button type="button" className="btn btn-ghost" onClick={() => setActiveView("families")}>去家庭组页</button>
+              <>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => {
+                    resetEditor();
+                    setModalTab("manual");
+                    setIsModalOpen(true);
+                  }}
+                >
+                  <PlusIcon /> 新增账号
+                </button>
+                <button type="button" className="btn btn-ghost" onClick={() => setActiveView("families")}>去家庭组页</button>
+              </>
             ) : (
               <button type="button" className="btn btn-ghost" onClick={() => setActiveView("accounts")}>去账号页</button>
             )}
@@ -666,116 +690,6 @@ function App() {
 
         {activeView === "accounts" ? (
           <>
-            <div className="card">
-              <div className="card-header">
-                <h3 className="card-title">批量导入账号</h3>
-                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setImportText("")}>清空</button>
-              </div>
-              <textarea
-                className="form-textarea"
-                value={importText}
-                onChange={(event) => setImportText(event.currentTarget.value)}
-                placeholder="每行一条，支持：login password [token] [app_pass] [url] [msg_url]"
-                rows={4}
-                style={{ fontFamily: "monospace" }}
-              />
-              <div className="mt-4">
-                <button type="button" className="btn btn-primary" onClick={handleImport} disabled={importing || saving}>
-                  {importing ? "导入中..." : "导入并合并"}
-                </button>
-              </div>
-            </div>
-
-            <div className="card">
-              <div className="card-header">
-                <h3 className="card-title">{editingAccountId ? "编辑账号" : "手动新增账号"}</h3>
-                {editingAccountId ? (
-                  <button type="button" className="btn btn-ghost btn-sm" onClick={resetEditor}>取消编辑</button>
-                ) : null}
-              </div>
-
-              <form onSubmit={handleSaveAccount}>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
-                  <div className="form-group">
-                    <label className="form-label">Gmail 登录账号</label>
-                    <input
-                      className="form-input"
-                      value={form.login}
-                      onChange={(event) => setForm({ ...form, login: event.currentTarget.value })}
-                      placeholder="name@gmail.com"
-                      required
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">登录密码</label>
-                    <input
-                      className="form-input"
-                      value={form.password}
-                      onChange={(event) => setForm({ ...form, password: event.currentTarget.value })}
-                      placeholder="Password"
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
-                  <div className="form-group">
-                    <label className="form-label">Authenticator Token (TOTP)</label>
-                    <input
-                      className="form-input"
-                      value={form.authenticatorToken}
-                      onChange={(event) => setForm({ ...form, authenticatorToken: event.currentTarget.value })}
-                      placeholder="Token"
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">App Password</label>
-                    <input
-                      className="form-input"
-                      value={form.appPassword}
-                      onChange={(event) => setForm({ ...form, appPassword: event.currentTarget.value })}
-                      placeholder="App specific password"
-                    />
-                  </div>
-                </div>
-
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
-                   <div className="form-group">
-                    <label className="form-label">Authenticator URL</label>
-                    <input
-                      className="form-input"
-                      value={form.authenticatorUrl}
-                      onChange={(event) => setForm({ ...form, authenticatorUrl: event.currentTarget.value })}
-                      placeholder="https://..."
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Messages URL</label>
-                    <input
-                      className="form-input"
-                      value={form.messagesUrl}
-                      onChange={(event) => setForm({ ...form, messagesUrl: event.currentTarget.value })}
-                      placeholder="https://..."
-                    />
-                  </div>
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">备注</label>
-                  <input
-                    className="form-input"
-                    value={form.note}
-                    onChange={(event) => setForm({ ...form, note: event.currentTarget.value })}
-                    placeholder="可选备注"
-                  />
-                </div>
-
-                <button type="submit" className="btn btn-primary" disabled={saving}>
-                  {saving ? "保存中..." : editingAccountId ? "保存修改" : "新增账号"}
-                </button>
-              </form>
-            </div>
-
             <div className="card">
               <div className="card-header">
                 <h3 className="card-title">账号列表</h3>
@@ -1025,6 +939,135 @@ function App() {
           </>
         )}
       </main>
+
+      {isModalOpen && (
+        <div className="modal-overlay" onClick={() => setIsModalOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">{editingAccountId ? "编辑账号" : "新增账号"}</h3>
+              <button className="btn btn-ghost btn-sm" onClick={() => setIsModalOpen(false)}>✕</button>
+            </div>
+
+            {!editingAccountId && (
+              <div className="modal-tabs">
+                <button
+                  className={`modal-tab ${modalTab === "manual" ? "active" : ""}`}
+                  onClick={() => setModalTab("manual")}
+                >
+                  手动添加
+                </button>
+                <button
+                  className={`modal-tab ${modalTab === "import" ? "active" : ""}`}
+                  onClick={() => setModalTab("import")}
+                >
+                  批量导入
+                </button>
+              </div>
+            )}
+
+            <div className="modal-body">
+              {modalTab === "import" && !editingAccountId ? (
+                <>
+                  <textarea
+                    className="form-textarea"
+                    value={importText}
+                    onChange={(event) => setImportText(event.currentTarget.value)}
+                    placeholder="每行一条，支持：login password [token] [app_pass] [url] [msg_url]"
+                    rows={10}
+                    style={{ fontFamily: "monospace" }}
+                  />
+                  <div className="mt-4">
+                    <button type="button" className="btn btn-primary" onClick={handleImport} disabled={importing || saving}>
+                      {importing ? "导入中..." : "导入并合并"}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <form onSubmit={handleSaveAccount}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+                    <div className="form-group">
+                      <label className="form-label">Gmail 登录账号</label>
+                      <input
+                        className="form-input"
+                        value={form.login}
+                        onChange={(event) => setForm({ ...form, login: event.currentTarget.value })}
+                        placeholder="name@gmail.com"
+                        required
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">登录密码</label>
+                      <input
+                        className="form-input"
+                        value={form.password}
+                        onChange={(event) => setForm({ ...form, password: event.currentTarget.value })}
+                        placeholder="Password"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+                    <div className="form-group">
+                      <label className="form-label">Authenticator Token (TOTP)</label>
+                      <input
+                        className="form-input"
+                        value={form.authenticatorToken}
+                        onChange={(event) => setForm({ ...form, authenticatorToken: event.currentTarget.value })}
+                        placeholder="Token"
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">App Password</label>
+                      <input
+                        className="form-input"
+                        value={form.appPassword}
+                        onChange={(event) => setForm({ ...form, appPassword: event.currentTarget.value })}
+                        placeholder="App specific password"
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+                    <div className="form-group">
+                      <label className="form-label">Authenticator URL</label>
+                      <input
+                        className="form-input"
+                        value={form.authenticatorUrl}
+                        onChange={(event) => setForm({ ...form, authenticatorUrl: event.currentTarget.value })}
+                        placeholder="https://..."
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Messages URL</label>
+                      <input
+                        className="form-input"
+                        value={form.messagesUrl}
+                        onChange={(event) => setForm({ ...form, messagesUrl: event.currentTarget.value })}
+                        placeholder="https://..."
+                      />
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">备注</label>
+                    <input
+                      className="form-input"
+                      value={form.note}
+                      onChange={(event) => setForm({ ...form, note: event.currentTarget.value })}
+                      placeholder="可选备注"
+                    />
+                  </div>
+
+                  <button type="submit" className="btn btn-primary" disabled={saving}>
+                    {saving ? "保存中..." : editingAccountId ? "保存修改" : "新增账号"}
+                  </button>
+                </form>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
