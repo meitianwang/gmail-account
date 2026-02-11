@@ -349,6 +349,15 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
+  max-width: 100%;
+}
+
+.value-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .icon-btn {

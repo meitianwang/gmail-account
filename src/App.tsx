@@ -777,7 +777,9 @@ function App() {
                           <div className="detail-item">
                             <div className="detail-label">密码</div>
                             <div className="detail-value">
-                              {maskValue(account.password, showSecrets)}
+                              <span className="value-text" title={account.password}>
+                                {maskValue(account.password, showSecrets)}
+                              </span>
                               <button className="icon-btn" onClick={() => copyValue(account.password, "密码")}>
                                 <CopyIcon />
                               </button>
@@ -786,7 +788,9 @@ function App() {
                           <div className="detail-item">
                             <div className="detail-label">辅助邮箱</div>
                             <div className="detail-value">
-                              {maskValue(account.recoveryEmail, showSecrets)}
+                              <span className="value-text" title={account.recoveryEmail}>
+                                {maskValue(account.recoveryEmail, showSecrets)}
+                              </span>
                               <button className="icon-btn" onClick={() => copyValue(account.recoveryEmail, "辅助邮箱")}>
                                 <CopyIcon />
                               </button>
@@ -795,7 +799,9 @@ function App() {
                           <div className="detail-item">
                             <div className="detail-label">手机号</div>
                             <div className="detail-value">
-                              {maskValue(account.phone, showSecrets)}
+                              <span className="value-text" title={account.phone}>
+                                {maskValue(account.phone, showSecrets)}
+                              </span>
                               <button className="icon-btn" onClick={() => copyValue(account.phone, "手机号")}>
                                 <CopyIcon />
                               </button>
@@ -804,7 +810,9 @@ function App() {
                           <div className="detail-item">
                             <div className="detail-label">Token</div>
                             <div className="detail-value">
-                              {maskValue(account.authenticatorToken, showSecrets)}
+                              <span className="value-text" title={account.authenticatorToken}>
+                                {maskValue(account.authenticatorToken, showSecrets)}
+                              </span>
                               <button className="icon-btn" onClick={() => copyValue(account.authenticatorToken, "Token")}>
                                 <CopyIcon />
                               </button>
@@ -813,7 +821,9 @@ function App() {
                           <div className="detail-item">
                             <div className="detail-label">App Password</div>
                             <div className="detail-value">
-                              {maskValue(account.appPassword, showSecrets)}
+                              <span className="value-text" title={account.appPassword}>
+                                {maskValue(account.appPassword, showSecrets)}
+                              </span>
                               <button className="icon-btn" onClick={() => copyValue(account.appPassword, "App Password")}>
                                 <CopyIcon />
                               </button>
@@ -823,8 +833,8 @@ function App() {
                             <div className="detail-item">
                               <div className="detail-label">Auth URL</div>
                               <div className="detail-value">
-                                <a href={account.authenticatorUrl} target="_blank" rel="noreferrer" style={{ textDecoration: "none", color: "inherit", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100px" }}>链接</a>
-                                <div className="flex gap-1">
+                                <a href={account.authenticatorUrl} target="_blank" rel="noreferrer" className="value-text" title={account.authenticatorUrl} style={{ textDecoration: "none", color: "inherit" }}>链接</a>
+                                <div className="flex gap-1" style={{ flexShrink: 0 }}>
                                   <button className="icon-btn" onClick={() => copyValue(account.authenticatorUrl, "Auth URL")}>
                                     <CopyIcon />
                                   </button>
@@ -839,8 +849,8 @@ function App() {
                             <div className="detail-item">
                               <div className="detail-label">Msg URL</div>
                               <div className="detail-value">
-                                <a href={account.messagesUrl} target="_blank" rel="noreferrer" style={{ textDecoration: "none", color: "inherit", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "120px" }}>链接</a>
-                                <button className="icon-btn" onClick={() => copyValue(account.messagesUrl, "Msg URL")}>
+                                <a href={account.messagesUrl} target="_blank" rel="noreferrer" className="value-text" title={account.messagesUrl} style={{ textDecoration: "none", color: "inherit" }}>链接</a>
+                                <button className="icon-btn" style={{ flexShrink: 0 }} onClick={() => copyValue(account.messagesUrl, "Msg URL")}>
                                   <CopyIcon />
                                 </button>
                               </div>
