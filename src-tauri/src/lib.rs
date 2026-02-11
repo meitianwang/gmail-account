@@ -1,9 +1,11 @@
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
     fs,
     path::PathBuf,
     sync::atomic::{AtomicU64, Ordering},
+    sync::LazyLock,
     time::{SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Manager};
@@ -12,11 +14,18 @@ const DATA_FILE_NAME: &str = "gmail_manager_data.json";
 const DATA_VERSION: u32 = 1;
 static ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
+static EMAIL_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$").unwrap());
+static PHONE_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\+?[0-9\-\s\(\)]{8,}$").unwrap());
+static URL_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)https?://[^\s]+").unwrap());
+static TOKEN_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[a-zA-Z2-7]{16,32}$").unwrap()); // Base32 token
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AccountDraft {
     login: String,
     password: String,
+    recovery_email: String,
+    phone: String,
     authenticator_token: String,
     app_password: String,
     authenticator_url: String,
@@ -30,10 +39,19 @@ struct AccountRecord {
     id: String,
     login: String,
     password: String,
+    #[serde(default)]
+    recovery_email: String,
+    #[serde(default)]
+    phone: String,
+    #[serde(default)]
     authenticator_token: String,
+    #[serde(default)]
     app_password: String,
+    #[serde(default)]
     authenticator_url: String,
+    #[serde(default)]
     messages_url: String,
+    #[serde(default)]
     note: String,
     created_at: i64,
     updated_at: i64,
@@ -164,6 +182,8 @@ fn normalize_data(mut data: AppData) -> AppData {
     for mut account in data.accounts {
         account.login = account.login.trim().to_string();
         account.password = account.password.trim().to_string();
+        account.recovery_email = account.recovery_email.trim().to_string();
+        account.phone = account.phone.trim().to_string();
         account.authenticator_token = account.authenticator_token.trim().to_string();
         account.app_password = account.app_password.trim().to_string();
         account.authenticator_url = account.authenticator_url.trim().to_string();
@@ -290,83 +310,150 @@ fn member_role_priority(role: &str) -> usize {
     }
 }
 
-fn parse_accounts(raw: &str) -> Result<Vec<AccountDraft>, String> {
-    let tokens: Vec<String> = raw
-        .split(|char| char == ';' || char == '\n' || char == '\r')
-        .map(|token| token.trim_matches('\u{feff}').trim())
-        .filter(|token| !token.is_empty())
-        .map(ToOwned::to_owned)
-        .collect();
-
-    if tokens.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let mut records = Vec::new();
-    let mut index = 0usize;
-
-    while index < tokens.len() {
-        let login = &tokens[index];
-        if !looks_like_login(login) {
-            return Err(format!(
-                "导入格式错误：第 {position} 个字段应为邮箱账号，但读取到 `{value}`。\n请确保每条记录以 login 开头，后续字段可选。\n格式：{{login}};{{password}};{{authenticatorToken}};{{appPassword}};{{authenticatorUrl}};{{messagesUrl}}（后 4 项可省略）",
-                position = index + 1,
-                value = login
-            ));
-        }
-        index += 1;
-
-        let mut trailing_fields: Vec<String> = Vec::new();
-        while index < tokens.len() && !looks_like_login(&tokens[index]) {
-            trailing_fields.push(tokens[index].to_string());
-            index += 1;
-        }
-
-        if trailing_fields.is_empty() {
-            return Err(format!(
-                "导入格式错误：账号 `{login}` 缺少 password 字段。最少需要 login + password。"
-            ));
-        }
-
-        let extra_note = if trailing_fields.len() > 5 {
-            trailing_fields[5..].join("\n")
-        } else {
-            String::new()
-        };
-
-        records.push(AccountDraft {
-            login: login.to_string(),
-            password: trailing_fields.first().cloned().unwrap_or_default(),
-            authenticator_token: trailing_fields.get(1).cloned().unwrap_or_default(),
-            app_password: trailing_fields.get(2).cloned().unwrap_or_default(),
-            authenticator_url: trailing_fields.get(3).cloned().unwrap_or_default(),
-            messages_url: trailing_fields.get(4).cloned().unwrap_or_default(),
-            note: extra_note,
-        });
-    }
-
-    Ok(records)
+fn looks_like_email(value: &str) -> bool {
+    EMAIL_REGEX.is_match(value.trim())
 }
 
-fn looks_like_login(value: &str) -> bool {
-    let value = value.trim();
-    if value.is_empty()
-        || value.contains(' ')
-        || value.starts_with("http://")
-        || value.starts_with("https://")
-    {
-        return false;
+fn empty_draft() -> AccountDraft {
+    AccountDraft {
+        login: String::new(),
+        password: String::new(),
+        recovery_email: String::new(),
+        phone: String::new(),
+        authenticator_token: String::new(),
+        app_password: String::new(),
+        authenticator_url: String::new(),
+        messages_url: String::new(),
+        note: String::new(),
+    }
+}
+
+fn finalize_draft(mut draft: AccountDraft, buffer: Vec<String>) -> AccountDraft {
+    for line in buffer {
+        if draft.app_password.is_empty() && line.len() == 16 && !TOKEN_REGEX.is_match(&line) {
+            draft.app_password = line;
+        } else {
+            let prefix = if draft.note.is_empty() { "" } else { "\n" };
+            draft.note = format!("{}{}{}", draft.note, prefix, line);
+        }
     }
 
-    let mut parts = value.split('@');
-    let local = parts.next().unwrap_or_default();
-    let domain = parts.next().unwrap_or_default();
-
-    if local.is_empty() || domain.is_empty() || parts.next().is_some() {
-        return false;
+    if draft.authenticator_url.is_empty() && !draft.authenticator_token.is_empty() {
+        draft.authenticator_url = "https://2fa.fun".to_string();
     }
 
-    domain.contains('.')
+    draft
+}
+
+fn parse_accounts(raw: &str) -> Result<Vec<AccountDraft>, String> {
+    let mut drafts = Vec::new();
+    let lines: Vec<&str> = raw
+        .lines()
+        .map(|line| line.trim())
+        .filter(|line| !line.is_empty())
+        .collect();
+
+    let mut current_draft: Option<AccountDraft> = None;
+    let mut field_buffer: Vec<String> = Vec::new();
+
+    for line in lines {
+        if line.contains("----") {
+            if let Some(draft) = current_draft.take() {
+                drafts.push(finalize_draft(draft, field_buffer));
+                field_buffer = Vec::new();
+            }
+
+            let parts: Vec<&str> = line.split("----").map(|s| s.trim()).collect();
+            if parts.is_empty() || !looks_like_email(parts[0]) {
+                continue;
+            }
+
+            let mut draft = empty_draft();
+            draft.login = parts[0].to_string();
+            if parts.len() > 1 {
+                draft.password = parts[1].to_string();
+            }
+            if parts.len() > 2 {
+                if looks_like_email(parts[2]) {
+                    draft.recovery_email = parts[2].to_string();
+                } else if TOKEN_REGEX.is_match(parts[2]) {
+                    draft.authenticator_token = parts[2].to_string();
+                }
+            }
+            if parts.len() > 3 && TOKEN_REGEX.is_match(parts[3]) {
+                draft.authenticator_token = parts[3].to_string();
+            }
+            drafts.push(finalize_draft(draft, Vec::new()));
+            continue;
+        }
+
+        let clean_line = line.trim_matches(|c| c == ';' || c == ',').trim();
+
+        if looks_like_email(clean_line) {
+            if let Some(ref mut draft) = current_draft {
+                if !draft.password.is_empty() && draft.recovery_email.is_empty() {
+                    draft.recovery_email = clean_line.to_string();
+                    continue;
+                }
+            }
+
+            if let Some(draft) = current_draft.take() {
+                drafts.push(finalize_draft(draft, field_buffer));
+                field_buffer = Vec::new();
+            }
+
+            let mut draft = empty_draft();
+            draft.login = clean_line.to_string();
+            current_draft = Some(draft);
+        } else if let Some(ref mut draft) = current_draft {
+            if draft.password.is_empty() {
+                draft.password = clean_line.to_string();
+            } else if clean_line.starts_with("辅助邮箱") || clean_line.starts_with("recovery") {
+                let parts: Vec<&str> = clean_line.splitn(2, ':').collect();
+                if parts.len() > 1 {
+                    draft.recovery_email = parts[1].trim().to_string();
+                }
+            } else if clean_line.starts_with("手机号") || clean_line.starts_with("phone") {
+                let parts: Vec<&str> = clean_line.splitn(2, ':').collect();
+                if parts.len() > 1 {
+                    draft.phone = parts[1].trim().to_string();
+                }
+            } else if clean_line.starts_with("接码链接:") || clean_line.starts_with("sms:") {
+                 let val = clean_line.splitn(2, ':').nth(1).unwrap_or("").trim();
+                 let prefix = if draft.note.is_empty() { "" } else { "\n" };
+                 draft.note = format!("{}{}{}", draft.note, prefix, val);
+            } else if clean_line.starts_with("2FA验证码查看网站:") || clean_line.starts_with("2fa:") {
+                 let val = clean_line.splitn(2, ':').nth(1).unwrap_or("").trim();
+                 if let Some(mat) = URL_REGEX.find(val) {
+                     draft.authenticator_url = mat.as_str().to_string();
+                 } else {
+                     // If no url found, maybe the value itself is useful?
+                     draft.authenticator_url = val.to_string();
+                 }
+            } else if clean_line.starts_with("http") {
+                if clean_line.contains("2fa") || clean_line.contains("totp") {
+                    draft.authenticator_url = clean_line.to_string();
+                } else if clean_line.contains("sms") || clean_line.contains("接码") {
+                    let prefix = if draft.note.is_empty() { "" } else { "\n" };
+                    draft.note = format!("{}{}{}", draft.note, prefix, clean_line);
+                } else {
+                    draft.messages_url = clean_line.to_string();
+                }
+            } else if TOKEN_REGEX.is_match(clean_line) {
+                draft.authenticator_token = clean_line.to_string();
+            } else if PHONE_REGEX.is_match(clean_line) {
+                draft.phone = clean_line.to_string();
+            } else {
+                field_buffer.push(clean_line.to_string());
+            }
+        }
+    }
+
+    if let Some(draft) = current_draft {
+        drafts.push(finalize_draft(draft, field_buffer));
+    }
+
+    Ok(drafts)
 }
 
 #[tauri::command]
@@ -414,6 +501,16 @@ fn import_accounts(app: AppHandle, raw: String) -> Result<ImportResult, String> 
                 existing.password = password.to_string();
             }
 
+            let recovery_email = imported.recovery_email.trim();
+            if !recovery_email.is_empty() {
+                existing.recovery_email = recovery_email.to_string();
+            }
+
+            let phone = imported.phone.trim();
+            if !phone.is_empty() {
+                existing.phone = phone.to_string();
+            }
+
             let authenticator_token = imported.authenticator_token.trim();
             if !authenticator_token.is_empty() {
                 existing.authenticator_token = authenticator_token.to_string();
@@ -450,6 +547,8 @@ fn import_accounts(app: AppHandle, raw: String) -> Result<ImportResult, String> 
                 id: generate_id("acc"),
                 login: imported.login.trim().to_string(),
                 password: imported.password.trim().to_string(),
+                recovery_email: imported.recovery_email.trim().to_string(),
+                phone: imported.phone.trim().to_string(),
                 authenticator_token: imported.authenticator_token.trim().to_string(),
                 app_password: imported.app_password.trim().to_string(),
                 authenticator_url: imported.authenticator_url.trim().to_string(),

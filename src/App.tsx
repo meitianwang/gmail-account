@@ -9,6 +9,8 @@ interface AccountRecord {
   id: string;
   login: string;
   password: string;
+  recoveryEmail: string;
+  phone: string;
   authenticatorToken: string;
   appPassword: string;
   authenticatorUrl: string;
@@ -53,6 +55,8 @@ interface Notice {
 interface AccountFormState {
   login: string;
   password: string;
+  recoveryEmail: string;
+  phone: string;
   authenticatorToken: string;
   appPassword: string;
   authenticatorUrl: string;
@@ -69,6 +73,8 @@ const EMPTY_DATA: AppData = {
 const EMPTY_FORM: AccountFormState = {
   login: "",
   password: "",
+  recoveryEmail: "",
+  phone: "",
   authenticatorToken: "",
   appPassword: "",
   authenticatorUrl: "",
@@ -88,6 +94,14 @@ const CopyIcon = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
     <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+  </svg>
+);
+
+const ExternalIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+    <polyline points="15 3 21 3 21 9"></polyline>
+    <line x1="10" y1="14" x2="21" y2="3"></line>
   </svg>
 );
 
@@ -172,6 +186,15 @@ function App() {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
 
+  useEffect(() => {
+    if (notice) {
+      const timer = setTimeout(() => {
+        setNotice(null);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [notice]);
+
   const [activeView, setActiveView] = useState<ViewMode>("accounts");
 
   const [query, setQuery] = useState("");
@@ -233,6 +256,8 @@ function App() {
       return [
         account.login,
         account.password,
+        account.recoveryEmail,
+        account.phone,
         account.authenticatorToken,
         account.appPassword,
         account.authenticatorUrl,
@@ -353,6 +378,8 @@ function App() {
           ...account,
           login: form.login.trim(),
           password: form.password.trim(),
+          recoveryEmail: form.recoveryEmail.trim(),
+          phone: form.phone.trim(),
           authenticatorToken: form.authenticatorToken.trim(),
           appPassword: form.appPassword.trim(),
           authenticatorUrl: form.authenticatorUrl.trim(),
@@ -374,6 +401,8 @@ function App() {
       id: randomId("acc"),
       login: form.login.trim(),
       password: form.password.trim(),
+      recoveryEmail: form.recoveryEmail.trim(),
+      phone: form.phone.trim(),
       authenticatorToken: form.authenticatorToken.trim(),
       appPassword: form.appPassword.trim(),
       authenticatorUrl: form.authenticatorUrl.trim(),
@@ -399,6 +428,8 @@ function App() {
     setForm({
       login: account.login,
       password: account.password,
+      recoveryEmail: account.recoveryEmail,
+      phone: account.phone,
       authenticatorToken: account.authenticatorToken,
       appPassword: account.appPassword,
       authenticatorUrl: account.authenticatorUrl,
@@ -753,6 +784,24 @@ function App() {
                             </div>
                           </div>
                           <div className="detail-item">
+                            <div className="detail-label">辅助邮箱</div>
+                            <div className="detail-value">
+                              {maskValue(account.recoveryEmail, showSecrets)}
+                              <button className="icon-btn" onClick={() => copyValue(account.recoveryEmail, "辅助邮箱")}>
+                                <CopyIcon />
+                              </button>
+                            </div>
+                          </div>
+                          <div className="detail-item">
+                            <div className="detail-label">手机号</div>
+                            <div className="detail-value">
+                              {maskValue(account.phone, showSecrets)}
+                              <button className="icon-btn" onClick={() => copyValue(account.phone, "手机号")}>
+                                <CopyIcon />
+                              </button>
+                            </div>
+                          </div>
+                          <div className="detail-item">
                             <div className="detail-label">Token</div>
                             <div className="detail-value">
                               {maskValue(account.authenticatorToken, showSecrets)}
@@ -774,10 +823,15 @@ function App() {
                             <div className="detail-item">
                               <div className="detail-label">Auth URL</div>
                               <div className="detail-value">
-                                <a href={account.authenticatorUrl} target="_blank" rel="noreferrer" style={{ textDecoration: "none", color: "inherit", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "120px" }}>链接</a>
-                                <button className="icon-btn" onClick={() => copyValue(account.authenticatorUrl, "Auth URL")}>
-                                  <CopyIcon />
-                                </button>
+                                <a href={account.authenticatorUrl} target="_blank" rel="noreferrer" style={{ textDecoration: "none", color: "inherit", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100px" }}>链接</a>
+                                <div className="flex gap-1">
+                                  <button className="icon-btn" onClick={() => copyValue(account.authenticatorUrl, "Auth URL")}>
+                                    <CopyIcon />
+                                  </button>
+                                  <a href={account.authenticatorUrl} target="_blank" rel="noreferrer" className="icon-btn" title="查询 2FA" style={{ color: "var(--primary)" }}>
+                                    <ExternalIcon />
+                                  </a>
+                                </div>
                               </div>
                             </div>
                           )}
@@ -793,6 +847,26 @@ function App() {
                             </div>
                           )}
                         </div>
+                        {account.note && (
+                            <div style={{ marginTop: "0.5rem", fontSize: "0.8rem", color: "var(--text-muted)", whiteSpace: "pre-wrap" }}>
+                              {account.note}
+                              {(() => {
+                                const lines = account.note.split('\n');
+                                const smsLine = lines.find(line => (line.includes("SMS") || line.includes("接码")) && /https?:\/\/[^\s]+/.test(line));
+                                if (smsLine) {
+                                  const link = smsLine.match(/https?:\/\/[^\s]+/)![0];
+                                  return (
+                                    <div style={{ marginTop: "0.25rem" }}>
+                                      <a href={link} target="_blank" rel="noreferrer" className="btn btn-primary btn-sm" style={{ display: "inline-flex", textDecoration: "none", alignItems: "center", gap: "0.25rem" }}>
+                                        <ExternalIcon /> 打开接码网站
+                                      </a>
+                                    </div>
+                                  );
+                                }
+                                return null;
+                              })()}
+                            </div>
+                        )}
                       </div>
                     );
                   })}
@@ -1003,6 +1077,27 @@ function App() {
                         onChange={(event) => setForm({ ...form, password: event.currentTarget.value })}
                         placeholder="Password"
                         required
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+                    <div className="form-group">
+                      <label className="form-label">辅助邮箱 (Recovery)</label>
+                      <input
+                        className="form-input"
+                        value={form.recoveryEmail}
+                        onChange={(event) => setForm({ ...form, recoveryEmail: event.currentTarget.value })}
+                        placeholder="recovery@example.com"
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">手机号 (Phone)</label>
+                      <input
+                        className="form-input"
+                        value={form.phone}
+                        onChange={(event) => setForm({ ...form, phone: event.currentTarget.value })}
+                        placeholder="+1 23456789"
                       />
                     </div>
                   </div>
