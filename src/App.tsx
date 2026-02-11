@@ -214,6 +214,9 @@ function App() {
   const [groupAdminId, setGroupAdminId] = useState("");
   const [memberDrafts, setMemberDrafts] = useState<Record<string, { accountId: string }>>({});
 
+  const [selectedAccountIds, setSelectedAccountIds] = useState<Set<string>>(new Set());
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+
   useEffect(() => {
     const loadInitialData = async () => {
       try {
@@ -626,6 +629,74 @@ function App() {
     await persistData({ ...data, groups: nextGroups }, "成员已移除");
   };
 
+  const handleToggleSelection = (accountId: string) => {
+    const nextSelected = new Set(selectedAccountIds);
+    if (nextSelected.has(accountId)) {
+      nextSelected.delete(accountId);
+    } else {
+      nextSelected.add(accountId);
+    }
+    setSelectedAccountIds(nextSelected);
+  };
+
+  const handleSelectAll = () => {
+    if (selectedAccountIds.size === filteredAccounts.length) {
+      setSelectedAccountIds(new Set());
+    } else {
+      setSelectedAccountIds(new Set(filteredAccounts.map((a) => a.id)));
+    }
+  };
+
+  const openDeleteConfirm = () => {
+    if (selectedAccountIds.size > 0) {
+      setIsDeleteConfirmOpen(true);
+    }
+  };
+
+  const confirmBatchDelete = async () => {
+    if (selectedAccountIds.size === 0) {
+      return;
+    }
+
+    const now = Date.now();
+    let nextGroups = [...data.groups];
+
+    // Remove deleted accounts from all groups
+    for (const accountId of selectedAccountIds) {
+      nextGroups = nextGroups.map((group) => {
+        const nextMembers = group.members.filter((member) => member.accountId !== accountId);
+        if (nextMembers.length === group.members.length) {
+          return group;
+        }
+        return {
+          ...group,
+          members: sortMembers(nextMembers),
+          updatedAt: now,
+        };
+      });
+    }
+
+    const nextAccounts = data.accounts.filter((item) => !selectedAccountIds.has(item.id));
+
+    const nextData: AppData = {
+      ...data,
+      accounts: nextAccounts,
+      groups: nextGroups,
+    };
+
+    const ok = await persistData(nextData, `已删除 ${selectedAccountIds.size} 个账号`);
+
+    setIsDeleteConfirmOpen(false);
+
+    if (ok) {
+      setSelectedAccountIds(new Set());
+      if (editingAccountId && selectedAccountIds.has(editingAccountId)) {
+        resetEditor();
+        setIsModalOpen(false);
+      }
+    }
+  };
+
   const pageTitle = activeView === "accounts" ? "账号管理" : "家庭组管理";
   const pageDescription = activeView === "accounts"
     ? "导入、编辑和搜索账号资料。"
@@ -723,8 +794,24 @@ function App() {
           <>
             <div className="card">
               <div className="card-header">
-                <h3 className="card-title">账号列表</h3>
                 <div className="flex gap-2 items-center">
+                  <div className="flex items-center gap-2" style={{ marginRight: "1rem" }}>
+                    <input
+                      type="checkbox"
+                      checked={filteredAccounts.length > 0 && selectedAccountIds.size === filteredAccounts.length}
+                      onChange={handleSelectAll}
+                      style={{ width: "1.2rem", height: "1.2rem", cursor: "pointer" }}
+                    />
+                    <span style={{ fontSize: "0.875rem", fontWeight: 500 }}>全选</span>
+                  </div>
+                  <h3 className="card-title">账号列表 {selectedAccountIds.size > 0 && <span style={{ fontSize: "0.875rem", fontWeight: "normal", color: "var(--text-muted)" }}>({selectedAccountIds.size} 已选)</span>}</h3>
+                </div>
+                <div className="flex gap-2 items-center">
+                  {selectedAccountIds.size > 0 && (
+                    <button type="button" className="btn btn-danger btn-sm" onClick={openDeleteConfirm}>
+                      <TrashIcon /> 批量删除
+                    </button>
+                  )}
                   <div style={{ position: "relative" }}>
                      <input
                       className="form-input"
@@ -750,18 +837,29 @@ function App() {
                 <div className="account-list">
                   {filteredAccounts.map((account) => {
                     const groups = accountToGroupMap.get(account.id) || [];
+                    const isSelected = selectedAccountIds.has(account.id);
                     return (
-                      <div key={account.id} className="account-item">
+                      <div key={account.id} className="account-item" style={{ border: isSelected ? "1px solid var(--primary)" : undefined }}>
                         <div className="account-header">
-                          <div>
-                            <div className="account-login">{account.login}</div>
-                            <div className="account-meta">
-                              {groups.length === 0 && <span className="badge">未分组</span>}
-                              {groups.map((groupName) => (
-                                <span key={groupName} className="badge" style={{ backgroundColor: "var(--primary-light)", color: "var(--primary)" }}>{groupName}</span>
-                              ))}
-                              {account.note && <span className="badge">{account.note}</span>}
-                            </div>
+                          <div className="flex gap-2 items-start">
+                             <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => handleToggleSelection(account.id)}
+                                style={{ width: "1.2rem", height: "1.2rem", marginTop: "0.2rem", cursor: "pointer" }}
+                             />
+                             <div>
+                                <div className="account-login" style={{ cursor: "pointer" }} onClick={() => handleToggleSelection(account.id)}>
+                                  {account.login}
+                                </div>
+                                <div className="account-meta">
+                                  {groups.length === 0 && <span className="badge">未分组</span>}
+                                  {groups.map((groupName) => (
+                                    <span key={groupName} className="badge" style={{ backgroundColor: "var(--primary-light)", color: "var(--primary)" }}>{groupName}</span>
+                                  ))}
+                                  {account.note && <span className="badge">{account.note}</span>}
+                                </div>
+                             </div>
                           </div>
                           <div className="flex gap-2">
                             <button className="btn btn-ghost btn-sm" onClick={() => beginEditAccount(account)} title="编辑">
@@ -1169,6 +1267,26 @@ function App() {
                   </button>
                 </form>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+      {isDeleteConfirmOpen && (
+        <div className="modal-overlay" onClick={() => setIsDeleteConfirmOpen(false)}>
+          <div className="modal" style={{ width: "400px", maxWidth: "90vw" }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">确认删除</h3>
+              <button className="btn btn-ghost btn-sm" onClick={() => setIsDeleteConfirmOpen(false)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <p>确认删除选中的 <strong>{selectedAccountIds.size}</strong> 个账号吗？</p>
+              <p style={{ color: "var(--text-muted)", fontSize: "0.875rem", marginTop: "0.5rem" }}>此操作不可恢复，这些账号也将从所有家庭组中移除。</p>
+              <div className="flex gap-2 justify-end" style={{ marginTop: "1.5rem" }}>
+                <button className="btn btn-ghost" onClick={() => setIsDeleteConfirmOpen(false)}>取消</button>
+                <button className="btn btn-danger" onClick={confirmBatchDelete} disabled={saving}>
+                  {saving ? "删除中..." : "确认删除"}
+                </button>
+              </div>
             </div>
           </div>
         </div>
